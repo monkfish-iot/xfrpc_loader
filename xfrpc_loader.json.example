@@ -1,0 +1,30 @@
+{
+	"server": {
+		"name": "example.wrthub.com",
+		"ip": "",
+		"port": 6999,
+		"protocol": "https"
+	},
+	"local_if": "br-lan",
+	"runtime": {
+		"join_timeout": 10,
+		"status_interval": 60,
+		"retry_interval": 5,
+		"max_retry_interval": 300,
+		"max_join_retries": 0
+	},
+	"auth": {
+		"enabled": 1,
+		"listen_port": 8888,
+		"remote_proto": "https",
+		"remote_host": "",
+		"remote_port": 0,
+		"remote_path": "/api/v1/auth",
+		"remote_timeout": 10,
+		"token_cache_ttl": 240,
+		"token_retry_interval": 5,
+		"modify_local_password": 0,
+		"default_username": "root",
+		"default_password": ""
+	}
+}
