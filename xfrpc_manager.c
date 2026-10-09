@@ -141,12 +141,11 @@ pid_t xfrpc_spawn(void)
 
 	if (pid == 0) {
 		/* 子进程：-f 前台运行（不 daemon 化）。
-		 * 排障：-d 7 打开 xfrpc DEBUG 级日志（配置解析、TLS 协商、
-		 * 连接与登录过程都会输出到 stderr，经 procd 进入 logread）。
-		 * 注意：xfrpc 上游在任何日志级别都不打印 login 请求的 JSON
-		 * 原文；要看实际提交/响应的 JSON，需抓 7000 端口明文报文。 */
-		execl(XFRPC_BIN_PATH, "xfrpc", "-f", "-d", "7",
-		      "-c", XFRPC_INI_PATH, (char *)NULL);
+		 * 不开 -d debug 日志：大量 debug 输出会加重内存/logread 缓冲
+		 * 压力，在内存紧张的 OpenWrt 上可能诱发 OOM SIGKILL。
+		 * 排障时临时手加 -d 7 即可。 */
+		execl(XFRPC_BIN_PATH, "xfrpc", "-f", "-c", XFRPC_INI_PATH,
+		      (char *)NULL);
 		/* execl 仅在失败时返回 */
 		log_err("execl %s failed: %s", XFRPC_BIN_PATH, strerror(errno));
 		_exit(127);

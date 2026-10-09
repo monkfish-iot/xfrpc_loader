@@ -28,6 +28,7 @@
 #include <unistd.h>
 #include <stdint.h>
 #include <errno.h>
+#include <sys/wait.h>	/* WIFSIGNALED/WTERMSIG 解析 xfrpc 退出原因 */
 
 #define CA_KEY_FILE "/etc/config/ca.key"
 
@@ -215,7 +216,16 @@ static void xfrpc_handle_exit(inst_t *inst, int status)
 {
 	time_t now;
 
-	log_warn("xfrpc exited, status=%d", status);
+	/* 解析 waitpid 原始 status：区分"被信号杀死"与"正常退出"。
+	 * status=9 在 raw 值下 = SIGKILL（内核 OOM killer / 外部 kill -9），
+	 * 而非退出码 9（退出码 9 的 raw 值应为 0x900=2304）。 */
+	if (WIFSIGNALED(status))
+		log_warn("xfrpc killed by signal %d (%s)",
+			 WTERMSIG(status), strsignal(WTERMSIG(status)));
+	else if (WIFEXITED(status))
+		log_warn("xfrpc exited, code=%d", WEXITSTATUS(status));
+	else
+		log_warn("xfrpc exited, raw status=%d", status);
 
 	/* xfrpc_pid 已由 SIGCHLD 回调置为 -1 */
 	now = time(NULL);
