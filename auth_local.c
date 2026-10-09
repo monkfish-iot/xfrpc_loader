@@ -431,6 +431,15 @@ int auth_local_ubus_login(const char *password, luci_token_t *token)
 	log_info("ubus login: POST %s user=%s password_len=%d",
 		 url, LUCI_USERNAME, pwd_len);
 
+	/* 打印 curl 复现命令（密码遮蔽，手工排查时把 <PWD> 换成实际密码）。
+	 * 不把明文密码写进日志，避免 logread 泄漏凭据。 */
+	log_info("ubus login: curl reproduce: "
+		 "curl -s -X POST '%s' -H 'Content-Type: application/json' "
+		 "-d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"call\","
+		 "\"params\":[\"%s\",\"session\",\"login\","
+		 "{\"username\":\"%s\",\"password\":\"<PWD>\"}]}'",
+		 url, UBUS_NULL_SID, LUCI_USERNAME);
+
 	if (http_post(url, body, 5, &rbuf) < 0) {
 		log_err("ubus login: http POST failed (url=%s)", url);
 		resp_buf_free(&rbuf);
