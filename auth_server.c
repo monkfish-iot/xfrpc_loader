@@ -362,16 +362,16 @@ static void handle_auth_request(struct evhttp_request *req, void *arg)
 	log_info("auth step5 OK: local password obtained (len=%zu)",
 		 strlen(luci_password));
 
-	/* 步骤 6: 用 root + 该密码登录 LuCI RPC */
-	log_info("auth step6: logging in to LuCI RPC...");
-	rc = auth_local_luci_login(luci_password, &luci_token);
+	/* 步骤 6: 用 root + 该密码登录 UBUS rpcd（session.login） */
+	log_info("auth step6: logging in to UBUS (session.login)...");
+	rc = auth_local_ubus_login(luci_password, &luci_token);
 	if (rc < 0) {
-		log_err("auth step6 FAIL: luci login failed, returning 503");
+		log_err("auth step6 FAIL: ubus session login failed, returning 503");
 		send_json_reply(req, 503, "Service Unavailable",
-				"{\"error\":\"luci login failed\"}");
+				"{\"error\":\"ubus session login failed\"}");
 		return;
 	}
-	log_info("auth step6 OK: luci token=%.16s..., valid=%d, ttl=%ds",
+	log_info("auth step6 OK: ubus sid=%.16s..., valid=%d, ttl=%ds",
 		 luci_token.token, luci_token.valid, luci_token.expires);
 
 	/* 步骤 7: 登录成功后设置本机密码。

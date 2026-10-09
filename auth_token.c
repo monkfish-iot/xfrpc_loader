@@ -68,15 +68,15 @@ int auth_token_get(auth_token_cache_t *cache, const char *password,
 			 since_fail);
 	}
 
-	/* 登录 LuCI */
-	log_info("token cache: calling luci login (password len=%zu)",
+	/* 登录 UBUS rpcd */
+	log_info("token cache: calling ubus session login (password len=%zu)",
 		 password ? strlen(password) : 0);
-	if (auth_local_luci_login(password, &cache->token) < 0) {
+	if (auth_local_ubus_login(password, &cache->token) < 0) {
 		cache->last_fail = now;
-		log_err("token cache: luci login FAILED, last_fail updated");
+		log_err("token cache: ubus session login FAILED, last_fail updated");
 		return -1;
 	}
-	log_info("token cache: luci login OK token=%.16s..., "
+	log_info("token cache: ubus session login OK sid=%.16s..., "
 		 "stored to cache",
 		 cache->token.token);
 

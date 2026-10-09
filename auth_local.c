@@ -31,7 +31,9 @@
 #define LOCALPASSWD_LEN     16
 #define LUCI_USERNAME       "root"
 #define LUCI_URL            "http://127.0.0.1:8000"
-#define LUCI_RPC_AUTH_PATH  "/cgi-bin/luci/rpc/auth"
+#define UBUS_RPC_PATH       "/ubus"
+/* UBUS 未认证会话 ID（32 个 0），session.login 请求的 params[0] */
+#define UBUS_NULL_SID       "00000000000000000000000000000000"
 
 /* ---- curl 响应缓冲区 ---- */
 
@@ -391,81 +393,117 @@ int auth_local_set_password(const char *username, const char *password)
 	return 0;
 }
 
-/* ---- luci-mod-rpc 登录 ---- */
+/* ---- UBUS session.login 登录 ---- */
+/* 设备 OpenWrt 已卸载所有 LuCI 模块，/cgi-bin/luci/rpc/auth 不存在（返回 500）；
+ * 改用 UBUS JSON-RPC session.login 获取 ubus_rpc_session，该 sid 可直接
+ * 作为后续 /ubus 业务调用（system.board / luci-rpc.* / iwinfo.* 等）的
+ * params[0] 凭据。协议参考 cloud_ac tentant-mng ubusproxy.Client.login。 */
 
-int auth_local_luci_login(const char *password, luci_token_t *token)
+int auth_local_ubus_login(const char *password, luci_token_t *token)
 {
 	char url[512];
-	char body[512];
+	char body[768];
 	struct resp_buf rbuf = { 0 };
-	struct json_object *root, *jresult, *jerror;
+	struct json_object *root, *jresult, *jerror, *jcode, *jdata, *jsid, *jtimeout;
 	int pwd_len = password ? strlen(password) : 0;
+	int ubus_code = 0;
+	int timeout = 300;
 
 	memset(token, 0, sizeof(*token));
 
-	snprintf(url, sizeof(url), "%s%s", LUCI_URL, LUCI_RPC_AUTH_PATH);
+	snprintf(url, sizeof(url), "%s%s", LUCI_URL, UBUS_RPC_PATH);
 
-	/* luci-mod-rpc auth 接口使用 POST JSON-RPC：
-	 *   {"id":1,"method":"login","params":["root","<password>"]}
+	/* UBUS JSON-RPC session.login：
+	 *   {"jsonrpc":"2.0","id":1,"method":"call",
+	 *    "params":["<nullSID>","session","login",
+	 *              {"username":"root","password":"<password>"}]}
 	 * 成功返回：
-	 *   {"id":1,"result":"e7c382ce...","error":null}
+	 *   {"jsonrpc":"2.0","id":1,"result":[0,{"ubus_rpc_session":"<sid>","timeout":300,...}]}
 	 * 失败返回：
-	 *   {"id":1,"result":null,"error":"..."} */
+	 *   {"jsonrpc":"2.0","id":1,"result":[6,null]}  （6=PERMISSION_DENIED，密码错）
+	 *   {"jsonrpc":"2.0","id":1,"error":{"code":-32002,"message":"Access denied"}} */
 	snprintf(body, sizeof(body),
-		 "{\"id\":1,\"method\":\"login\",\"params\":[\"%s\",\"%s\"]}",
-		 LUCI_USERNAME, password);
+		 "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"call\","
+		 "\"params\":[\"%s\",\"session\",\"login\","
+		 "{\"username\":\"%s\",\"password\":\"%s\"}]}",
+		 UBUS_NULL_SID, LUCI_USERNAME, password);
 
-	log_info("luci login: POST %s user=%s password_len=%d",
+	log_info("ubus login: POST %s user=%s password_len=%d",
 		 url, LUCI_USERNAME, pwd_len);
 
 	if (http_post(url, body, 5, &rbuf) < 0) {
-		log_err("luci login: http POST failed (url=%s)", url);
+		log_err("ubus login: http POST failed (url=%s)", url);
 		resp_buf_free(&rbuf);
 		return -1;
 	}
 
-	log_info("luci login: <- HTTP resp_len=%zu, body(%.256s)",
+	log_info("ubus login: <- HTTP resp_len=%zu, body(%.256s)",
 		 rbuf.size, rbuf.data ? rbuf.data : "(empty)");
 
 	root = json_tokener_parse(rbuf.data ? rbuf.data : "null");
 	resp_buf_free(&rbuf);
 
 	if (!root) {
-		log_err("luci login: parse response json failed");
+		log_err("ubus login: parse response json failed");
 		return -1;
 	}
 
 	if (json_object_is_type(root, json_type_null)) {
 		json_object_put(root);
-		log_warn("luci login: response is null (access denied / bad password)");
+		log_warn("ubus login: response is null (access denied / bad password)");
 		return -1;
 	}
 
-	/* 检查 error 字段 */
+	/* 检查 JSON-RPC 层 error 字段（如 -32002 Access denied） */
 	if (json_object_object_get_ex(root, "error", &jerror) &&
 	    !json_object_is_type(jerror, json_type_null)) {
-		log_warn("luci login: rpc error=%s",
+		log_warn("ubus login: rpc error=%s",
 			 json_object_get_string(jerror));
 		json_object_put(root);
 		return -1;
 	}
 
-	/* 提取 result 字段（session token 字符串） */
+	/* result 是数组：[code, data] */
 	if (!json_object_object_get_ex(root, "result", &jresult) ||
-	    json_object_is_type(jresult, json_type_null)) {
-		log_warn("luci login: result is null (wrong password?)");
+	    !json_object_is_type(jresult, json_type_array)) {
+		log_warn("ubus login: result missing or not array");
+		json_object_put(root);
+		return -1;
+	}
+
+	jcode = json_object_array_get_idx(jresult, 0);
+	if (!jcode) {
+		log_warn("ubus login: result[0] (code) missing");
+		json_object_put(root);
+		return -1;
+	}
+	ubus_code = json_object_get_int(jcode);
+	if (ubus_code != 0) {
+		/* 6 = PERMISSION_DENIED（密码错/会话拒绝） */
+		log_warn("ubus login: ubus status=%d (wrong password?)", ubus_code);
+		json_object_put(root);
+		return -1;
+	}
+
+	jdata = json_object_array_get_idx(jresult, 1);
+	if (!jdata ||
+	    !json_object_object_get_ex(jdata, "ubus_rpc_session", &jsid)) {
+		log_warn("ubus login: ubus_rpc_session missing");
 		json_object_put(root);
 		return -1;
 	}
 
 	snprintf(token->token, sizeof(token->token), "%s",
-		 json_object_get_string(jresult));
+		 json_object_get_string(jsid));
 	token->obtained_at = time(NULL);
-	token->expires = 300;	/* LuCI 默认 session 超时 */
+
+	if (json_object_object_get_ex(jdata, "timeout", &jtimeout))
+		timeout = json_object_get_int(jtimeout);
+	token->expires = timeout > 0 ? timeout : 300;
 	token->valid = 1;
 	json_object_put(root);
 
-	log_info("luci login: SUCCESS token=%.16s... (len=%zu, ttl=%ds)",
+	log_info("ubus login: SUCCESS sid=%.16s... (len=%zu, ttl=%ds)",
 		 token->token, strlen(token->token), token->expires);
 	return 0;
 }

@@ -31,12 +31,14 @@
 #define LOCALPASSWD_FILE	"/etc/config/localpasswd"
 
 /*
- * LuCI session token（luci-mod-rpc auth 返回的 result 字段）
+ * UBUS 会话凭据（ubus session.login 返回的 ubus_rpc_session）。
+ * 结构名沿用历史命名 luci_token_t，对 WrtHub-UI 输出的 JSON 字段名
+ * "luci_token" 也保留（契约不变），实际值是 ubus rpc_session。
  */
 typedef struct {
-	char	token[256];	/* luci-mod-rpc session token */
+	char	token[256];	/* ubus_rpc_session 字符串 */
 	time_t	obtained_at;	/* 获取时间 */
-	int	expires;	/* 有效期(秒)，LuCI 默认 300 */
+	int	expires;	/* 有效期(秒)，rpcd 默认 300 */
 	int	valid;		/* 是否有效 */
 } luci_token_t;
 
@@ -88,10 +90,11 @@ int auth_local_rotate_password(char *new_password, size_t pwd_sz);
 int auth_local_set_password(const char *username, const char *password);
 
 /*
- * 通过 luci-mod-rpc 登录 LuCI，获取 session token。
+ * 通过 UBUS JSON-RPC session.login 登录设备 rpcd，获取 ubus_rpc_session。
+ * 设备 OpenWrt 已卸载所有 LuCI 模块，不再走 /cgi-bin/luci/rpc/auth。
  *   password 为 root 账号的密码
  *   返回 0 成功，-1 失败。
  */
-int auth_local_luci_login(const char *password, luci_token_t *token);
+int auth_local_ubus_login(const char *password, luci_token_t *token);
 
 #endif /* XFRPC_LOADER_AUTH_LOCAL_H */
