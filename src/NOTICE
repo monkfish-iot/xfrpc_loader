@@ -1,0 +1,22 @@
+Copyright 2026 Monkfish
+
+xfrpc_loader is a daemon that manages the xfrpc tunnel process on
+OpenWrt devices.
+
+This product includes software developed by third parties:
+
+  - The libevent project (BSD 2-Clause "Simplified" License)
+    https://github.com/libevent/libevent
+
+  - Daniel Stenberg and the cURL project (MIT License)
+    https://curl.se/
+
+  - The json-c project (MIT License)
+    https://github.com/json-c/json-c
+
+  - The OpenSSL Project, for use in the OpenSSL Toolkit
+    (https://www.openssl.org/).  This product includes cryptographic
+    software written by Eric Young (eay@cryptsoft.com) and uses other
+    code written by Steve Reid (steve@medoc.co.uk).
+    The OpenSSL License is based on Apache License 2.0 and is fully
+    compatible with this project's license.

@@ -1,0 +1,39 @@
+# xfrpc_loader.conf.any —— frpc_mode=0（直连模式）时使用
+#
+# 绑定所有接口：此时不启动 xfrpc、无隧道，
+# 反向访问通过 http://<local_if_IP>:8765 直连本服务。
+#
+# 维护要求：除 listen 行外，其余配置必须与线上 xfrpc_loader.conf 保持一致；
+# 修改线上配置时，请同步修改本模板与 xfrpc_loader.conf.localhost。
+
+server {
+    listen 8765;
+    server_name localhost;
+    client_max_body_size 64m;
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # 禁止直接经本虚拟主机调用 LuCI RPC 登录接口（纵深防御，包不依赖 luci-mod-rpc）
+    location = /cgi-bin/luci/rpc/auth {
+        try_files /nonexistent =404;
+    }
+
+    # 禁止直接经本虚拟主机调用 LuCI RPC 修改密码接口（uci?auth= 前缀）
+    location ^~ /cgi-bin/luci/rpc/uci {
+        try_files /nonexistent =404;
+    }
+
+    location = /auth {
+        # 转发到认证服务
+        proxy_pass http://127.0.0.1:8888/auth;
+        proxy_redirect default;
+        proxy_set_header Content-Type "application/json";
+        proxy_set_header X-Original-URI $request_uri;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+}
